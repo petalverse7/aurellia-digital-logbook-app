@@ -80,7 +80,7 @@ create_tables()
 # ==========================================
 # 3. FUNGSI GENERATOR PDF
 # ==========================================
-def generate_pdf(nama, nim, tanggal_str, matkul, ruangan, hari_ke, kegiatan_df, kasus, nama_ci="", nip_ci="", ttd_ci=None, nama_dosen="", nip_dosen="", ttd_dosen=None):
+def generate_pdf(nama, nim, tanggal_str, matkul, ruangan, hari_ke, kegiatan_df, kasus, nama_ci="", nip_ci="", ttd_ci=None, nama_dosen="", nip_dosen="", ttd_dosen=None, komen_ci="", komen_dosen=""):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     elements = []
@@ -128,8 +128,40 @@ def generate_pdf(nama, nim, tanggal_str, matkul, ruangan, hari_ke, kegiatan_df, 
     elements.append(Spacer(1, 5))
     kasus_lines = kasus.split('\n') if kasus else []
     for i, line in enumerate(kasus_lines): elements.append(Paragraph(f"{i+1}. {line}", styles['Normal']))
-    elements.append(Spacer(1, 30))
+    elements.append(Spacer(1, 20))
     
+    # Tabel komentar selalu tercetak di bawah kasus (bila kosong berisi "-")
+    elements.append(Paragraph("<b>Komentar</b>", styles['Normal']))
+    elements.append(Spacer(1, 5))
+    
+    pdf_komen_ci = str(komen_ci).strip() if (komen_ci and str(komen_ci).strip() != "") else "-"
+    pdf_komen_dosen = str(komen_dosen).strip() if (komen_dosen and str(komen_dosen).strip() != "") else "-"
+    
+    para_komen_ci = Paragraph(pdf_komen_ci.replace('\n', '<br/>'), cell_style)
+    para_komen_dsn = Paragraph(pdf_komen_dosen.replace('\n', '<br/>'), cell_style)
+    
+    label_ci_para = Paragraph("<b>Pembimbing Klinik (CI)</b>", cell_style)
+    label_dsn_para = Paragraph("<b>Dosen Akademik</b>", cell_style)
+    
+    pdf_komen_data = [
+        [label_ci_para, para_komen_ci],
+        [label_dsn_para, para_komen_dsn]
+    ]
+    
+    t_pdf_komen = Table(pdf_komen_data, colWidths=[150, 350], hAlign='LEFT')
+    t_pdf_komen.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 1, colors.grey),
+        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING', (0,0), (-1,-1), 10),
+        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+    ]))
+    elements.append(t_pdf_komen)
+    elements.append(Spacer(1, 25))
+    
+    # Bagian penempelan gambar tanda tangan digital
     img_ci = Spacer(1, 40)
     if ttd_ci:
         try: img_ci = Image(BytesIO(base64.b64decode(ttd_ci)), width=1.5*72, height=0.8*72)
@@ -311,7 +343,9 @@ else:
                             except: return None
                         def_kegiatan['Jam'] = def_kegiatan['Jam'].apply(parse_jam)
                     def_kasus = data_edit[5]
-                if st.button("Batal Edit / Buat Baru"): st.session_state['edit_id'] = None; st.rerun()
+                if st.button("Batal Edit / Buat Baru"): 
+                    st.session_state['edit_id'] = None
+                    st.rerun()
 
             with st.form("logbook_form"):
                 col1, col2 = st.columns(2)
@@ -340,18 +374,23 @@ else:
                         if st.session_state['edit_id']:
                             c.execute('''UPDATE logbooks SET tanggal=?, matkul=?, ruangan=?, hari_ke=?, kegiatan_json=?, kasus=?, created_at=? WHERE id=?''',
                                       (format_tgl_lengkap, matkul, ruangan, hari_ke, keg_json, kasus, timestamp_now, st.session_state['edit_id']))
+                            conn.commit()
                             st.session_state['edit_id'] = None
+                            st.toast("✅ Perubahan logbook berhasil disimpan!")
                         else:
                             c.execute('''INSERT INTO logbooks (user_id, tanggal, matkul, ruangan, hari_ke, kegiatan_json, kasus, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)''',
                                       (st.session_state['user_id'], format_tgl_lengkap, matkul, ruangan, hari_ke, keg_json, kasus, 'Draft', timestamp_now))
-                        conn.commit()
-                        st.success("Tersimpan!")
+                            conn.commit()
+                            st.toast("📋 Logbook baru berhasil disimpan!")
+                        
+                        st.session_state['menu_aktif'] = "📂 Riwayat (Tersimpan)"
+                        st.rerun()
 
         elif pilihan_menu == "📂 Riwayat (Tersimpan)":
             st.title("📂 Riwayat Logbook (Tersimpan)")
             st.info("Seluruh dokumen Anda yang telah dibuat akan terekam di sini.")
             
-            c.execute("SELECT id, tanggal, matkul, ruangan, status, nama_ci_terpilih, nama_dosen_terpilih, hari_ke, kegiatan_json, kasus FROM logbooks WHERE user_id=? ORDER BY id DESC", (st.session_state['user_id'],))
+            c.execute("SELECT id, tanggal, matkul, ruangan, status, nama_ci_terpilih, nama_dosen_terpilih, hari_ke, kegiatan_json, kasus, komen_ci, komen_dosen FROM logbooks WHERE user_id=? ORDER BY id DESC", (st.session_state['user_id'],))
             drafts = c.fetchall()
             
             c.execute("SELECT daftar_ci, daftar_dosen FROM users WHERE id=?", (st.session_state['user_id'],))
@@ -365,22 +404,37 @@ else:
                 for i, col in enumerate(h_cols): col.markdown(f"<div class='header-col'>{headers[i]}</div>", unsafe_allow_html=True)
 
                 for i, row in enumerate(drafts):
-                    l_id, tgl, mk, rg, stat, saved_ci, saved_dosen, hk, k_json, kas = row
-                    is_sent = (stat != 'Draft')
+                    l_id, tgl, mk, rg, stat, saved_ci, saved_dosen, hk, k_json, kas, km_ci, km_ds = row
                     r_cols = st.columns([0.5, 1.8, 1.5, 1.2, 1, 1.5, 1.5, 1.5, 1.5])
                     
                     r_cols[0].write(str(i+1)); r_cols[1].write(tgl); r_cols[2].write(mk); r_cols[3].write(rg)
                     
                     if r_cols[4].button("👁️ Cek", key=f"prev_mhs_{l_id}"):
-                        ci_data = get_user_data(saved_ci, "Pembimbing Klinik (CI)")
-                        dsn_data = get_user_data(saved_dosen, "Dosen")
-                        pdf_buf = generate_pdf(st.session_state['nama'], st.session_state['nim_nip'], tgl, mk, rg, hk, pd.DataFrame(json.loads(k_json)), kasus=kas, 
-                                               nama_ci=saved_ci, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
-                                               nama_dosen=saved_dosen, nip_dosen=dsn_data[0] if dsn_data else "", ttd_dosen=dsn_data[1] if dsn_data else None)
+                        # FIX LOGIKA TTD: Validasi data penempelan gambar tanda tangan digital berdasarkan status verifikasi
+                        ci_data = None
+                        if saved_ci and saved_ci != "-- Pilih CI --":
+                            ci_data = get_user_data(saved_ci, "Pembimbing Klinik (CI)")
+                            
+                        dsn_data = None
+                        if saved_dosen and saved_dosen != "-- Pilih Dosen --":
+                            dsn_data = get_user_data(saved_dosen, "Dosen")
+                        
+                        pdf_buf = generate_pdf(
+                            st.session_state['nama'], st.session_state['nim_nip'], tgl, mk, rg, hk, 
+                            pd.DataFrame(json.loads(k_json)), kasus=kas, 
+                            nama_ci=saved_ci if saved_ci != "-- Pilih CI --" else "", 
+                            nip_ci=ci_data[0] if ci_data else "", 
+                            ttd_ci=ci_data[1] if (ci_data and stat in ['Menunggu Dosen', 'Selesai']) else None,
+                            nama_dosen=saved_dosen if saved_dosen != "-- Pilih Dosen --" else "", 
+                            nip_dosen=dsn_data[0] if dsn_data else "", 
+                            ttd_dosen=dsn_data[1] if (dsn_data and stat == 'Selesai') else None,
+                            komen_ci=km_ci, komen_dosen=km_ds
+                        )
                         st.session_state['preview_pdf'] = pdf_buf
                         st.session_state['preview_filename'] = f"Logbook_{mk}.pdf"
                         st.rerun()
                     
+                    is_sent = (stat != 'Draft')
                     idx_ci = ci_names.index(saved_ci) if saved_ci in ci_names else 0
                     idx_ds = ds_names.index(saved_dosen) if saved_dosen in ds_names else 0
                     terpilih_ci = r_cols[5].selectbox("CI", ci_names, index=idx_ci, key=f"ci_{l_id}", label_visibility="collapsed", disabled=is_sent)
@@ -395,7 +449,9 @@ else:
                     with r_cols[8]:
                         if stat == 'Draft':
                             if st.button("📝 Edit", key=f"ed_{l_id}"):
-                                st.session_state['edit_id'] = l_id; st.session_state['menu_aktif'] = "📝 Pengisian Logbook"; st.rerun()
+                                st.session_state['edit_id'] = l_id
+                                st.session_state['menu_aktif'] = "📝 Pengisian Logbook"
+                                st.rerun()
                             if st.button("Kirim ➔", type="primary", key=f"krm_{l_id}"):
                                 if terpilih_ci == "-- Pilih CI --" or terpilih_ds == "-- Pilih Dosen --": st.error("Pilih CI & Dosen!")
                                 else:
@@ -424,7 +480,7 @@ else:
                             <td>{km_ci if km_ci else '-'}</td>
                         </tr>
                         <tr>
-                            <td class="role-label">Dosen Akademik</td>
+                            <td class="role-label">Dosen Academic</td>
                             <td>{km_ds if km_ds else '-'}</td>
                         </tr>
                     </table>
@@ -434,9 +490,11 @@ else:
                     if st.button(f"👁️ Preview Logbook {i+1}", key=f"prev_selesai_{l_id}"):
                         ci_data = get_user_data(n_ci, "Pembimbing Klinik (CI)")
                         dsn_data = get_user_data(n_ds, "Dosen")
+                        
                         pdf_buf = generate_pdf(st.session_state['nama'], st.session_state['nim_nip'], tgl, mk, rg, hk, pd.DataFrame(json.loads(keg_json)), kasus=kas, 
-                                               nama_ci=n_ci, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
-                                               nama_dosen=n_ds, nip_dosen=dsn_data[0] if dsn_data else "", ttd_dosen=dsn_data[1] if dsn_data else None)
+                                           nama_ci=n_ci, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
+                                           nama_dosen=n_ds, nip_dosen=dsn_data[0] if dsn_data else "", ttd_dosen=dsn_data[1] if dsn_data else None,
+                                           komen_ci=km_ci, komen_dosen=km_ds)
                         st.session_state['preview_pdf'] = pdf_buf
                         st.session_state['preview_filename'] = f"Final_{tgl}.pdf"
                         st.rerun()
@@ -458,15 +516,17 @@ else:
                     else:
                         merger = PdfMerger()
                         placeholders = ','.join('?' for _ in selected_ids)
-                        c.execute(f"SELECT l.tanggal, l.matkul, l.ruangan, l.hari_ke, l.kegiatan_json, l.kasus, l.nama_ci_terpilih, l.nama_dosen_terpilih FROM logbooks l WHERE l.id IN ({placeholders})", selected_ids)
+                        c.execute(f"SELECT l.tanggal, l.matkul, l.ruangan, l.hari_ke, l.kegiatan_json, l.kasus, l.nama_ci_terpilih, l.nama_dosen_terpilih, l.komen_ci, l.komen_dosen FROM logbooks l WHERE l.id IN ({placeholders})", selected_ids)
                         files_to_merge = c.fetchall()
                         for f in files_to_merge:
-                            tgl, mk, rg, hk, keg_json, kas, n_ci, n_ds = f
+                            tgl, mk, rg, hk, keg_json, kas, n_ci, n_ds, km_ci, km_ds = f
                             ci_data = get_user_data(n_ci, "Pembimbing Klinik (CI)")
                             dsn_data = get_user_data(n_ds, "Dosen")
+                            
                             pdf_buf = generate_pdf(st.session_state['nama'], st.session_state['nim_nip'], tgl, mk, rg, hk, pd.DataFrame(json.loads(keg_json)), kasus=kas, 
-                                                   nama_ci=n_ci, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
-                                                   nama_dosen=n_ds, nip_dosen=dsn_data[0] if dsn_data else "", ttd_dosen=dsn_data[1] if dsn_data else None)
+                                           nama_ci=n_ci, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
+                                           nama_dosen=n_ds, nip_dosen=dsn_data[0] if dsn_data else "", ttd_dosen=dsn_data[1] if dsn_data else None,
+                                           komen_ci=km_ci, komen_dosen=km_ds)
                             merger.append(pdf_buf)
                         merged_buffer = BytesIO()
                         merger.write(merged_buffer); merged_buffer.seek(0)
@@ -521,7 +581,7 @@ else:
             c.execute("SELECT ttd_image, nim_nip FROM users WHERE id=?", (st.session_state['user_id'],))
             ci_info = c.fetchone()
             
-            query_ci = """SELECT l.id, u.nama, u.nim_nip, l.tanggal, l.created_at, l.matkul, l.ruangan, l.hari_ke, l.kegiatan_json, l.kasus, l.nama_dosen_terpilih, l.status, l.komen_ci 
+            query_ci = """SELECT l.id, u.nama, u.nim_nip, l.tanggal, l.created_at, l.matkul, l.ruangan, l.hari_ke, l.kegiatan_json, l.kasus, l.nama_dosen_terpilih, l.status, l.komen_ci, l.komen_dosen 
                           FROM logbooks l JOIN users u ON l.user_id = u.id 
                           WHERE l.status IN ('Menunggu CI', 'Menunggu Dosen', 'Selesai') AND l.nama_ci_terpilih=? ORDER BY l.created_at DESC"""
             c.execute(query_ci, (st.session_state['nama'],))
@@ -529,13 +589,13 @@ else:
             
             if len(tugas_ci) > 0:
                 for i, row in enumerate(tugas_ci):
-                    l_id, m_nama, m_nim, tgl, waktu_kirim, mk, rg, hk, k_json, kas, nd, stat, existing_komen = row
+                    l_id, m_nama, m_nim, tgl, waktu_kirim, mk, rg, hk, k_json, kas, nd, stat, existing_komen, existing_kdosen = row
                     sudah_valid = stat != 'Menunggu CI'
                     
                     with st.expander(f"📁 [{stat}] {i+1}. Mahasiswa: {m_nama} | Matkul: {mk} ({tgl})"):
                         st.markdown(f"**NIM:** {m_nim} | **Ruangan:** {rg} | **Hari Ke-:** {hk}")
                         
-                        pdf_buf = generate_pdf(m_nama, m_nim, tgl, mk, rg, hk, pd.DataFrame(json.loads(k_json)), kasus=kas, nama_ci=st.session_state['nama'], nip_ci=ci_info[1], ttd_ci=ci_info[0])
+                        pdf_buf = generate_pdf(m_nama, m_nim, tgl, mk, rg, hk, pd.DataFrame(json.loads(k_json)), kasus=kas, nama_ci=st.session_state['nama'], nip_ci=ci_info[1], ttd_ci=ci_info[0], komen_ci=existing_komen, komen_dosen=existing_kdosen)
                         if st.button("👁️ Tinjau Lembar PDF", key=f"btn_ci_p_{l_id}"):
                             st.session_state['preview_pdf'] = pdf_buf
                             st.session_state['preview_filename'] = f"Draft_{m_nama}.pdf"
@@ -603,7 +663,7 @@ else:
             c.execute("SELECT ttd_image, nim_nip FROM users WHERE id=?", (st.session_state['user_id'],))
             dsn_info = c.fetchone()
             
-            query_dosen = """SELECT l.id, u.nama, u.nim_nip, l.tanggal, l.created_at, l.matkul, l.ruangan, l.hari_ke, l.kegiatan_json, l.kasus, l.nama_ci_terpilih, l.status, l.komen_dosen 
+            query_dosen = """SELECT l.id, u.nama, u.nim_nip, l.tanggal, l.created_at, l.matkul, l.ruangan, l.hari_ke, l.kegiatan_json, l.kasus, l.nama_ci_terpilih, l.status, l.komen_ci, l.komen_dosen 
                              FROM logbooks l JOIN users u ON l.user_id = u.id 
                              WHERE l.status IN ('Menunggu Dosen', 'Selesai') AND l.nama_dosen_terpilih=? ORDER BY l.created_at DESC"""
             c.execute(query_dosen, (st.session_state['nama'],))
@@ -611,16 +671,18 @@ else:
             
             if len(tugas_dosen) > 0:
                 for i, row in enumerate(tugas_dosen):
-                    l_id, m_nama, m_nim, tgl, waktu_kirim, mk, rg, hk, k_json, kas, nc, stat, existing_kdosen = row
+                    l_id, m_nama, m_nim, tgl, waktu_kirim, mk, rg, hk, k_json, kas, nc, stat, existing_kci, existing_kdosen = row
                     sudah_selesai = stat == 'Selesai'
                     
                     with st.expander(f"📁 [{stat}] {i+1}. Berkas Mahasiswa: {m_nama} ({tgl})"):
                         st.write(f"**Mata Kuliah:** {mk} | **Pembimbing Klinik (CI):** {nc}")
                         
                         ci_data = get_user_data(nc, "Pembimbing Klinik (CI)")
+                        
                         pdf_buf = generate_pdf(m_nama, m_nim, tgl, mk, rg, hk, pd.DataFrame(json.loads(k_json)), kasus=kas, 
-                                               nama_ci=nc, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
-                                               nama_dosen=st.session_state['nama'], nip_dosen=dsn_info[1], ttd_dosen=dsn_info[0])
+                                           nama_ci=nc, nip_ci=ci_data[0] if ci_data else "", ttd_ci=ci_data[1] if ci_data else None,
+                                           nama_dosen=st.session_state['nama'], nip_dosen=dsn_info[1], ttd_dosen=dsn_info[0],
+                                           komen_ci=existing_kci, komen_dosen=existing_kdosen)
                         
                         if st.button("👁️ Tinjau Lembar Berkas TTD CI", key=f"btn_ds_p_{l_id}"):
                             st.session_state['preview_pdf'] = pdf_buf
@@ -642,7 +704,7 @@ else:
             else: st.info("Belum ada logbook tahap akhir yang masuk.")
 
     # ==========================================
-    # GLOBAL: WINDOW PREVIEW PDF (TAB BARU - ANTI BLOKIR CHROME)
+    # GLOBAL: WINDOW PREVIEW PDF (BLOB OBJECT URL - AUTOMATIC ANTI-RELOAD)
     # ==========================================
     if st.session_state.get('preview_pdf') is not None:
         st.markdown("---")
@@ -650,7 +712,6 @@ else:
         
         col1, col2, col3 = st.columns([1.5, 1.5, 4])
         
-        # 1. Ambil data bytes PDF
         pdf_bytes = st.session_state['preview_pdf'].getvalue()
         base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
         
@@ -658,21 +719,32 @@ else:
             st.download_button("📥 Unduh (.pdf)", data=pdf_bytes, file_name=st.session_state['preview_filename'], type="primary")
         
         with col2:
-            # Trik Sakti: Membuat tombol HTML yang membuka PDF di Tab Baru
-            new_tab_html = f'''
-            <a href="data:application/pdf;base64,{base64_pdf}" target="_blank" style="text-decoration: none;">
-                <button style="background-color: #03a9f4; color: white; padding: 0.5rem 1rem; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; height: 38px;">
-                    🔗 Buka di Tab Baru
-                </button>
-            </a>
-            '''
-            st.markdown(new_tab_html, unsafe_allow_html=True)
+            html_script_tab = f"""
+            <script>
+            function bukaTabTanpaReload() {{
+                var base64str = "{base64_pdf}";
+                var byteCharacters = atob(base64str);
+                var byteNumbers = new Array(byteCharacters.length);
+                for (var i = 0; i < byteCharacters.length; i++) {{
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }}
+                var byteArray = new Uint8Array(byteNumbers);
+                var file = new Blob([byteArray], {{type: 'application/pdf'}});
+                var fileURL = URL.createObjectURL(file);
+                window.open(fileURL, "_blank");
+            }}
+            </script>
+            <button onclick="bukaTabTanpaReload()" style="background-color: #03a9f4; color: white; padding: 0.5rem 1rem; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; height: 38px;">
+                🔗 Buka di Tab Baru
+            </button>
+            """
+            st.components.v1.html(html_script_tab, height=45)
             
         with col3:
             if st.button("✖ Tutup Kontrol", key="tutup_preview_global"):
                 st.session_state['preview_pdf'] = None
                 st.rerun()
                 
-        # Berikan pesan petunjuk yang ramah untuk pengguna
-        st.info("💡 **Petunjuk:** Klik tombol **🔗 Buka di Tab Baru** di atas untuk melihat preview lembar logbook A4 secara penuh dan menandatanganinya dengan aman.")
+        st.info("💡 **Petunjuk:** Klik tombol **🔗 Buka di Tab Baru** untuk membuka dan melihat lembar cetak logbook secara utuh tanpa hambatan sistem.")
+
         
