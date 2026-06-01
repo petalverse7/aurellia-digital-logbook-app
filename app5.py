@@ -235,8 +235,8 @@ if not st.session_state['logged_in']:
                 st.markdown("**Pengaturan Data Pembimbing & Dosen (Khusus Mahasiswa)**")
                 st.caption("Silakan kosongkan saja jika Anda mendaftar sebagai Pembimbing Klinik (CI) atau Dosen.")
                 col1, col2 = st.columns(2)
-                with col1: daftar_ci_input = st.text_area("Daftar Nama CI (Pisahkan dgn Enter):", placeholder="Budi Santoso\nSiti Aminah")
-                with col2: daftar_dosen_input = st.text_area("Daftar Nama Dosen (Pisahkan dgn Enter):", placeholder="Dr. Andi Rahman\nNs. Sari Indah")
+                with col1: daftar_ci_input = st.text_area("Daftar Nama CI (Pisahkan dengan Enter):", placeholder="Budi Santoso\nSiti Aminah")
+                with col2: daftar_dosen_input = st.text_area("Daftar Nama Dosen (Pisahkan dengan Enter):", placeholder="Dr. Andi Rahman\nNs. Sari Indah")
 
             if st.form_submit_button("Daftar"):
                 c.execute('SELECT id FROM users WHERE email=?', (email,))
@@ -281,7 +281,7 @@ else:
     # DASHBOARD MAHASISWA
     # ==========================================
     if st.session_state['role'] == "Mahasiswa":
-        menu_options = ["👤 Profil Data Mahasiswa", "📝 Pengisian Logbook", "📂 Riwayat (Tersimpan)", "✅ Logbook Tervalidasi", "🗂️ Eksport Dokumen"]
+        menu_options = ["👤 Profil Data Mahasiswa", "📝 Pengisian Logbook", "📂 Riwayat (Tersimpan)", "✅ Logbook Tervalidasi", "🗂️ Ekspor Dokumen"]
         try: default_index = menu_options.index(st.session_state['menu_aktif'])
         except: default_index = 0
             
@@ -501,17 +501,17 @@ else:
                     st.markdown("---")
             else: st.info("Belum ada.")
         
-        elif pilihan_menu == "🗂️ Eksport Dokumen":
-            st.title("🗂️ Eksport & Rekap Dokumen")
+        elif pilihan_menu == "🗂️ Ekspor Dokumen":
+            st.title("🗂️ Ekspor & Rekap Dokumen")
             c.execute("SELECT id, tanggal, matkul, ruangan, hari_ke FROM logbooks WHERE user_id=? AND status='Selesai'", (st.session_state['user_id'],))
             hasil = c.fetchall()
             if len(hasil) > 0:
                 df_eksport = pd.DataFrame(hasil, columns=['id', 'Hari, Tanggal', 'Mata Kuliah', 'Ruangan', 'Hari ke-'])
-                df_eksport.insert(0, 'Eksport', False); df_eksport.insert(1, 'No', range(1, len(df_eksport) + 1))
-                edited_eksport = st.data_editor(df_eksport, hide_index=True, use_container_width=True, column_config={"Eksport": st.column_config.CheckboxColumn("Eksport (Ceklis)", default=False), "id": None}, disabled=["No", "Hari, Tanggal", "Mata Kuliah", "Ruangan", "Hari ke-"])
+                df_eksport.insert(0, 'Ekspor', False); df_eksport.insert(1, 'No', range(1, len(df_eksport) + 1))
+                edited_eksport = st.data_editor(df_eksport, hide_index=True, use_container_width=True, column_config={"Ekspor": st.column_config.CheckboxColumn("Ekspor (Ceklis)", default=False), "id": None}, disabled=["No", "Hari, Tanggal", "Mata Kuliah", "Ruangan", "Hari ke-"])
                 
                 if st.button("👁️ Proses Gabungan PDF", type="primary"):
-                    selected_ids = edited_eksport[edited_eksport['Eksport'] == True]['id'].tolist()
+                    selected_ids = edited_eksport[edited_eksport['Ekspor'] == True]['id'].tolist()
                     if not selected_ids: st.warning("Ceklis minimal 1 baris.")
                     else:
                         merger = PdfMerger()
@@ -534,7 +534,7 @@ else:
                         st.session_state['preview_pdf'] = merged_buffer
                         st.session_state['preview_filename'] = f"Rekap_Logbook.pdf"
                         st.rerun()
-            else: st.info("Anda belum memiliki logbook tervalidasi yang dapat dieksport.")
+            else: st.info("Anda belum memiliki logbook tervalidasi yang dapat diekspor.")
 
     # ==========================================
     # DASHBOARD CI (PEMBIMBING KLINIK)
@@ -557,7 +557,7 @@ else:
                 if data_profil[2]: st.success("✓ Anda sudah mengunggah Tanda Tangan Digital.")
                 else: st.warning("⚠ Anda belum mengunggah Tanda Tangan Digital.")
                 
-                ttd_file = st.file_uploader("Pilih File Gambar TTD (Maksimal 1 file, ukuran maks 2MB, format PNG transparan disarankan)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
+                ttd_file = st.file_uploader("Pilih file tanda tangan/TTD  (Maksimal 1 file, ukuran maks 2MB, format PNG transparan disarankan)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
                 
                 if st.form_submit_button("Simpan Profil & TTD"):
                     c.execute('SELECT id FROM users WHERE nama=? AND id!=?', (nama_baru, st.session_state['user_id']))
@@ -748,3 +748,4 @@ else:
         st.info("💡 **Petunjuk:** Klik tombol **🔗 Buka di Tab Baru** untuk membuka dan melihat lembar cetak logbook secara utuh tanpa hambatan sistem.")
 
         
+# streamlit run app7.py
